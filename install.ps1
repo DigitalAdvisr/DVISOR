@@ -1,18 +1,18 @@
 # ===================================================
-# DVISOR FILELESS AUTO-SETUP
+# DVISOR FILELESS AUTO-SETUP (FIXED PATHS)
 # ===================================================
 Write-Host "===================================================" -ForegroundColor Green
 Write-Host "DVISOR ONE-CLICK SETUP INITIALIZING..." -ForegroundColor Green
 Write-Host "===================================================" -ForegroundColor Green
 
-# 1. PROCESS KILLER (Fail-Safe against overwriting running files)
+# 1. PROCESS KILLER
 Write-Host "[1/6] Cleaning up old processes..."
 Stop-Process -Name "pythonw" -Force -ErrorAction SilentlyContinue
 Stop-Process -Name "python" -Force -ErrorAction SilentlyContinue
 
-# 2. FOLDER CREATION
+# 2. FOLDER CREATION (Using Native Environment Variables)
 Write-Host "[2/6] Preparing System Directories..."
-$TargetDir = Join-Path -Path [Environment]::GetFolderPath("UserProfile") -ChildPath "Downloads\Video\Dvisor"
+$TargetDir = Join-Path -Path $env:USERPROFILE -ChildPath "Downloads\Video\Dvisor"
 if (-not (Test-Path -Path $TargetDir)) {
     New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
 }
@@ -41,10 +41,10 @@ try {
     winget install --id Gyan.FFmpeg -e --silent --accept-package-agreements --accept-source-agreements | Out-Null
 }
 
-# PATH VARIABLE REFRESH (Zero-Lag without PC restart)
+# PATH VARIABLE REFRESH
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 
-# 5. PIP LIBRARIES (Auto-Skip if updated)
+# 5. PIP LIBRARIES
 Write-Host "[5/6] Verifying Python Libraries (yt-dlp, pywin32)..."
 py -m pip install yt-dlp pywin32 --upgrade --quiet | Out-Null
 
@@ -193,7 +193,8 @@ if __name__ == "__main__":
 $PyPath = Join-Path -Path $TargetDir -ChildPath "Dvisor_Core.py"
 Set-Content -Path $PyPath -Value $PyCode -Encoding UTF8 -Force
 
-$ShortcutPath = Join-Path -Path [Environment]::GetFolderPath("Startup") -ChildPath "Dvisor_Auto_Downloader.lnk"
+# Startup shortcut using native APPDATA variable
+$ShortcutPath = Join-Path -Path $env:APPDATA -ChildPath "Microsoft\Windows\Start Menu\Programs\Startup\Dvisor_Auto_Downloader.lnk"
 $WshShell = New-Object -ComObject WScript.Shell
 $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
 $Shortcut.TargetPath = "pyw.exe"
