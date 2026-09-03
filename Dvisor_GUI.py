@@ -1,5 +1,7 @@
 import customtkinter as ctk
-import threading, queue, win32clipboard, time, os, re, ctypes, struct
+import threading, queue, time, os, re
+import ctypes
+import win32clipboard
 import yt_dlp
 
 ctk.set_appearance_mode("Dark")
@@ -9,26 +11,20 @@ DOWNLOAD_FOLDER = os.path.join(os.path.expanduser("~"), "Downloads", "Video", "D
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 URL_RE = re.compile(r"^https?://[^\s<>\"']+$", re.IGNORECASE)
 
-kernel32, user32 = ctypes.WinDLL("kernel32", use_last_error=True), ctypes.WinDLL("user32", use_last_error=True)
-GMEM_MOVEABLE, GMEM_ZEROINIT, CF_HDROP = 0x0002, 0x0040, 15
-
-kernel32.GlobalAlloc.argtypes, kernel32.GlobalAlloc.restype = [ctypes.c_uint, ctypes.c_size_t], ctypes.c_void_p
-kernel32.GlobalLock.argtypes, kernel32.GlobalLock.restype = [ctypes.c_void_p], ctypes.c_void_p
-kernel32.GlobalUnlock.argtypes, kernel32.GlobalUnlock.restype = [ctypes.c_void_p], ctypes.c_bool
-user32.SetClipboardData.argtypes, user32.SetClipboardData.restype = [ctypes.c_uint, ctypes.c_void_p], ctypes.c_void_p
+user32 = ctypes.WinDLL("user32", use_last_error=True)
 user32.GetClipboardSequenceNumber.restype = ctypes.c_uint
 
 class DvisorApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Dvisor Pro - Premium Downloader")
+        self.title("Dvisor Pro - Advanced Downloader")
         self.geometry("650x500")
         self.resizable(False, False)
         
         self.header = ctk.CTkLabel(self, text="DVISOR PRO", font=ctk.CTkFont(size=28, weight="bold"), text_color="#00ffcc")
         self.header.pack(pady=(15, 5))
         
-        self.sub_header = ctk.CTkLabel(self, text="Monitoring Clipboard • Auto-Download & Copy", font=ctk.CTkFont(size=12))
+        self.sub_header = ctk.CTkLabel(self, text="Monitoring Clipboard • Advanced Multi-Thread Downloader", font=ctk.CTkFont(size=12))
         self.sub_header.pack(pady=(0, 15))
         
         self.scroll_frame = ctk.CTkScrollableFrame(self, width=600, height=380)
@@ -106,15 +102,20 @@ class DvisorApp(ctk.CTk):
 
     def execute_download(self, url, ui_frame, progress_var, status_label):
         output_tmpl = os.path.join(DOWNLOAD_FOLDER, f"Dvisor_{int(time.time())}.%(ext)s")
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
         
         def hook(d):
             if d['status'] == 'downloading':
                 p_str = d.get('_percent_str', '0%').replace('%','').strip()
+                speed = ansi_escape.sub('', d.get('_speed_str', '~'))
+                eta = ansi_escape.sub('', d.get('_eta_str', '~'))
                 try: p_val = float(p_str) / 100.0
                 except: p_val = 0
-                self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "value": p_val, "text": f"Downloading: {p_str}%"})
+                
+                detail_text = f"Downloading: {p_str}% | Speed: {speed} | ETA: {eta} | [10 Threads]"
+                self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "value": p_val, "text": detail_text})
             elif d['status'] == 'finished':
-                self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "value": 1.0, "text": "Processing Video..."})
+                self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "value": 0.99, "text": "Merging Audio & Video (Processing)..."})
 
         base_opts = {
             'format': 'bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/best[ext=mp4][height<=720]/best',
@@ -131,46 +132,23 @@ class DvisorApp(ctk.CTk):
         opts_with_cookies['cookiesfrombrowser'] = ('chrome',)
         success = False
 
-        # ATTEMPT 1: Chrome Cookies
         try:
             with yt_dlp.YoutubeDL(opts_with_cookies) as ydl:
-                info = ydl.extract_info(url, download=True)
-                final_file = ydl.prepare_filename(info)
-                if not final_file.endswith('.mp4'): final_file = final_file.rsplit('.', 1)[0] + '.mp4'
-                self.copy_to_clip(final_file)
-                self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "value": 1.0, "text": "Completed! Ready in Clipboard."})
+                ydl.download([url])
+                self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "value": 1.0, "text": "Completed! Saved to Dvisor folder."})
                 success = True
         except Exception as e:
-            pass # Move to fallback
+            pass 
 
-        # ATTEMPT 2: Fallback to No Cookies (if DB locked)
         if not success:
             try:
                 self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "value": 0, "text": "Chrome locked. Retrying directly..."})
                 with yt_dlp.YoutubeDL(base_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    final_file = ydl.prepare_filename(info)
-                    if not final_file.endswith('.mp4'): final_file = final_file.rsplit('.', 1)[0] + '.mp4'
-                    self.copy_to_clip(final_file)
-                    self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "value": 1.0, "text": "Completed! Ready in Clipboard."})
+                    ydl.download([url])
+                    self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "value": 1.0, "text": "Completed! Saved to Dvisor folder."})
             except Exception as e2:
                 err_msg = str(e2).split('\n')[0][:55]
                 self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "value": 0, "text": f"Error: {err_msg}"})
-
-    def copy_to_clip(self, file_path):
-        try:
-            absolute_path = os.path.abspath(file_path)
-            dropfiles = struct.pack("<IiiII", 20, 0, 0, 0, 1)
-            payload = dropfiles + absolute_path.encode("utf-16le") + b"\x00\x00\x00\x00"
-            h_global = kernel32.GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, len(payload))
-            ctypes.memmove(kernel32.GlobalLock(h_global), payload, len(payload))
-            kernel32.GlobalUnlock(h_global)
-            win32clipboard.OpenClipboard()
-            win32clipboard.EmptyClipboard()
-            user32.SetClipboardData(CF_HDROP, h_global)
-            win32clipboard.CloseClipboard()
-            ctypes.windll.user32.MessageBeep(0)
-        except: pass
 
     def download_manager(self):
         while True: time.sleep(1)
