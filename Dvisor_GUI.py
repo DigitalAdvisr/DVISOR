@@ -116,10 +116,9 @@ class DvisorApp(ctk.CTk):
             elif d['status'] == 'finished':
                 self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "value": 1.0, "text": "Processing Video..."})
 
-        opts = {
+        base_opts = {
             'format': 'bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/best[ext=mp4][height<=720]/best',
             'outtmpl': output_tmpl,
-            'cookiesfrombrowser': ('chrome',),
             'concurrent_fragment_downloads': 10,
             'progress_hooks': [hook],
             'quiet': True,
@@ -128,16 +127,35 @@ class DvisorApp(ctk.CTk):
             'postprocessors': [{'key': 'FFmpegVideoConvertor', 'preferedformat': 'mp4'}]
         }
         
+        opts_with_cookies = base_opts.copy()
+        opts_with_cookies['cookiesfrombrowser'] = ('chrome',)
+        success = False
+
+        # ATTEMPT 1: Chrome Cookies
         try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
+            with yt_dlp.YoutubeDL(opts_with_cookies) as ydl:
                 info = ydl.extract_info(url, download=True)
                 final_file = ydl.prepare_filename(info)
                 if not final_file.endswith('.mp4'): final_file = final_file.rsplit('.', 1)[0] + '.mp4'
-                
                 self.copy_to_clip(final_file)
                 self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "value": 1.0, "text": "Completed! Ready in Clipboard."})
+                success = True
         except Exception as e:
-            self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "value": 0, "text": "Download Failed (Check Network/Browser)"})
+            pass # Move to fallback
+
+        # ATTEMPT 2: Fallback to No Cookies (if DB locked)
+        if not success:
+            try:
+                self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "value": 0, "text": "Chrome locked. Retrying directly..."})
+                with yt_dlp.YoutubeDL(base_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    final_file = ydl.prepare_filename(info)
+                    if not final_file.endswith('.mp4'): final_file = final_file.rsplit('.', 1)[0] + '.mp4'
+                    self.copy_to_clip(final_file)
+                    self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "value": 1.0, "text": "Completed! Ready in Clipboard."})
+            except Exception as e2:
+                err_msg = str(e2).split('\n')[0][:55]
+                self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "value": 0, "text": f"Error: {err_msg}"})
 
     def copy_to_clip(self, file_path):
         try:
