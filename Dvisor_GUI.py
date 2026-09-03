@@ -1,101 +1,120 @@
 import customtkinter as ctk
-from tkinter import ttk
-import os
+from tkinter import ttk, Menu
+import threading
 
-# ------------------- CORE UI SETUP -------------------
+# ------------------- 1. INSTANT GUI LOAD -------------------
+# GUI will load in 0.5 seconds before any heavy backend engine blocks it.
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
 class DvisorPro(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Dvisor Pro v1.0 - Universal Downloader")
-        self.geometry("950x600")
+        self.title("Dvisor Pro v1.0 - Internet Download Manager")
+        self.geometry("1050x650")
         self.minsize(800, 500)
         
-        # Grid Layout (1 row, 2 columns)
-        self.grid_rowconfigure(0, weight=1)
+        # Grid Layout (2 Rows: Toolbar, Main Area)
+        self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(1, weight=1)
 
-        # ------------------- SIDEBAR -------------------
-        self.sidebar = ctk.CTkFrame(self, width=200, corner_radius=0)
-        self.sidebar.grid(row=0, column=0, sticky="nsew")
-        self.sidebar.grid_rowconfigure(6, weight=1)
+        # ------------------- TOP TOOLBAR (IDM STYLE) -------------------
+        self.toolbar = ctk.CTkFrame(self, height=75, corner_radius=0, fg_color="#1a1a1a")
+        self.toolbar.grid(row=0, column=0, columnspan=2, sticky="ew")
+        self.build_toolbar()
         
-        self.logo_label = ctk.CTkLabel(self.sidebar, text="DVISOR PRO", font=ctk.CTkFont(size=24, weight="bold"), text_color="#00ffcc")
-        self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 30))
-        
-        self.btn_all = ctk.CTkButton(self.sidebar, text="🌐 All Downloads", anchor="w", fg_color="transparent", hover_color="#333333")
-        self.btn_all.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
-        
-        self.btn_video = ctk.CTkButton(self.sidebar, text="🎬 Videos", anchor="w", fg_color="transparent", hover_color="#333333")
-        self.btn_video.grid(row=2, column=0, padx=10, pady=5, sticky="ew")
-        
-        self.btn_music = ctk.CTkButton(self.sidebar, text="🎵 Music", anchor="w", fg_color="transparent", hover_color="#333333")
-        self.btn_music.grid(row=3, column=0, padx=10, pady=5, sticky="ew")
-        
-        self.btn_docs = ctk.CTkButton(self.sidebar, text="📄 Documents", anchor="w", fg_color="transparent", hover_color="#333333")
-        self.btn_docs.grid(row=4, column=0, padx=10, pady=5, sticky="ew")
-        
-        self.btn_programs = ctk.CTkButton(self.sidebar, text="💻 Programs", anchor="w", fg_color="transparent", hover_color="#333333")
-        self.btn_programs.grid(row=5, column=0, padx=10, pady=5, sticky="ew")
+        # ------------------- LEFT SIDEBAR -------------------
+        self.sidebar = ctk.CTkFrame(self, width=220, corner_radius=0, fg_color="#242424")
+        self.sidebar.grid(row=1, column=0, sticky="nsew")
+        self.sidebar.grid_rowconfigure(9, weight=1)
+        self.build_sidebar()
 
-        # ------------------- MAIN AREA -------------------
+        # ------------------- MAIN DATA GRID -------------------
         self.main_area = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
-        self.main_area.grid(row=0, column=1, sticky="nsew")
-        self.main_area.grid_rowconfigure(1, weight=1)
+        self.main_area.grid(row=1, column=1, sticky="nsew", padx=10, pady=10)
+        self.main_area.grid_rowconfigure(0, weight=1)
         self.main_area.grid_columnconfigure(0, weight=1)
-        
-        # TOP ACTION BAR
-        self.top_bar = ctk.CTkFrame(self.main_area, height=50, corner_radius=0)
-        self.top_bar.grid(row=0, column=0, sticky="ew")
-        
-        self.btn_add = ctk.CTkButton(self.top_bar, text="➕ Add Link", width=100)
-        self.btn_add.pack(side="left", padx=10, pady=10)
-        
-        self.btn_pause = ctk.CTkButton(self.top_bar, text="⏸ Pause", width=90, fg_color="#444444", hover_color="#555555")
-        self.btn_pause.pack(side="left", padx=5, pady=10)
-        
-        self.btn_resume = ctk.CTkButton(self.top_bar, text="▶ Resume", width=90, fg_color="#444444", hover_color="#555555")
-        self.btn_resume.pack(side="left", padx=5, pady=10)
-        
-        self.btn_delete = ctk.CTkButton(self.top_bar, text="❌ Remove", width=90, fg_color="#7a2a2a", hover_color="#993333")
-        self.btn_delete.pack(side="left", padx=5, pady=10)
+        self.build_grid()
 
-        self.btn_settings = ctk.CTkButton(self.top_bar, text="⚙ Settings", width=90, fg_color="transparent", border_width=1)
-        self.btn_settings.pack(side="right", padx=10, pady=10)
+        # ------------------- BACKGROUND INITIALIZER -------------------
+        # Loading Heavy Engines quietly in background
+        threading.Thread(target=self.lazy_load_engines, daemon=True).start()
 
-        # DATA GRID (TREEVIEW)
-        self.grid_frame = ctk.CTkFrame(self.main_area, corner_radius=0)
-        self.grid_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
-        self.grid_frame.grid_rowconfigure(0, weight=1)
-        self.grid_frame.grid_columnconfigure(0, weight=1)
+    def build_toolbar(self):
+        btn_configs = [
+            ("➕\nAdd URL", "#2FA572", None),
+            ("▶\nResume", "#333333", None),
+            ("⏸\nStop", "#333333", None),
+            ("⏹\nStop All", "#333333", None),
+            ("❌\nDelete", "#8A2A2A", None),
+            ("⚙\nOptions", "#333333", None),
+            ("🕒\nScheduler", "#333333", None)
+        ]
+        for text, color, cmd in btn_configs:
+            btn = ctk.CTkButton(self.toolbar, text=text, width=75, height=55, fg_color=color, hover_color="#555555", font=ctk.CTkFont(size=12, weight="bold"))
+            btn.pack(side="left", padx=5, pady=10)
+
+    def build_sidebar(self):
+        lbl = ctk.CTkLabel(self.sidebar, text="Categories", font=ctk.CTkFont(size=14, weight="bold"), text_color="#00ffcc")
+        lbl.grid(row=0, column=0, padx=20, pady=(15, 10), sticky="w")
         
-        # Dark Theme Styling for Treeview
+        cats = ["🌐 All Downloads", "⏳ Unfinished", "✅ Finished", "🎬 Videos", "🎵 Music", "💻 Programs", "📄 Documents", "📦 Compressed"]
+        for i, cat in enumerate(cats):
+            btn = ctk.CTkButton(self.sidebar, text=cat, anchor="w", fg_color="transparent", hover_color="#3a3a3a", text_color="#e0e0e0")
+            btn.grid(row=i+1, column=0, padx=10, pady=2, sticky="ew")
+
+    def build_grid(self):
         style = ttk.Style()
         style.theme_use("default")
-        style.configure("Treeview", background="#242424", foreground="white", fieldbackground="#242424", borderwidth=0, rowheight=30)
-        style.configure("Treeview.Heading", background="#1f538d", foreground="white", relief="flat", font=("Arial", 10, "bold"))
+        style.configure("Treeview", background="#1e1e1e", foreground="white", fieldbackground="#1e1e1e", borderwidth=0, rowheight=28)
+        style.configure("Treeview.Heading", background="#1f538d", foreground="white", relief="flat", font=("Arial", 9, "bold"))
         style.map("Treeview", background=[("selected", "#00ffcc")], foreground=[("selected", "black")])
         
-        columns = ("File Name", "Size", "Status", "Time Left", "Transfer Rate", "Added On")
-        self.tree = ttk.Treeview(self.grid_frame, columns=columns, show="headings", selectmode="browse")
+        columns = ("File Name", "Size", "Status", "Time Left", "Transfer Rate", "Last Try", "Description")
+        self.tree = ttk.Treeview(self.main_area, columns=columns, show="headings", selectmode="extended")
         
         for col in columns:
             self.tree.heading(col, text=col)
-            if col == "File Name": self.tree.column(col, width=300)
-            else: self.tree.column(col, width=100, anchor="center")
+            if col == "File Name": self.tree.column(col, width=280)
+            elif col == "Status": self.tree.column(col, width=150)
+            else: self.tree.column(col, width=90, anchor="center")
             
         self.tree.grid(row=0, column=0, sticky="nsew")
         
-        # Scrollbar for Grid
-        scrollbar = ctk.CTkScrollbar(self.grid_frame, command=self.tree.yview)
+        scrollbar = ctk.CTkScrollbar(self.main_area, command=self.tree.yview)
         scrollbar.grid(row=0, column=1, sticky="ns")
         self.tree.configure(yscrollcommand=scrollbar.set)
         
-        # Insert Dummy Data for Preview
-        self.tree.insert("", "end", values=("Example_Movie_1080p.mp4", "1.2 GB", "Downloading (32%)", "00:04:15", "5.2 MiB/s", "Today"))
-        self.tree.insert("", "end", values=("Windows_Tool_Setup.exe", "450 MB", "Completed", "-", "-", "Yesterday"))
+        # IDM Style Context Menu (Right Click)
+        self.rc_menu = Menu(self, tearoff=0, bg="#2b2b2b", fg="white", activebackground="#00ffcc", activeforeground="black", font=("Arial", 10))
+        self.rc_menu.add_command(label="▶ Resume Download")
+        self.rc_menu.add_command(label="⏸ Stop Download")
+        self.rc_menu.add_separator()
+        self.rc_menu.add_command(label="📁 Open Folder")
+        self.rc_menu.add_command(label="❌ Remove from list")
+        self.tree.bind("<Button-3>", self.show_rc_menu)
+
+        # Sample Data
+        self.tree.insert("", "end", values=("Example_IDM_Setup.exe", "12.5 MB", "Completed", "-", "-", "Today", "Installer"))
+        self.tree.insert("", "end", values=("Action_Movie_2026_1080p.mp4", "2.1 GB", "Downloading (45%)", "00:12:30", "3.2 MiB/s", "Today", "Media"))
+
+    def show_rc_menu(self, event):
+        try:
+            item = self.tree.identify_row(event.y)
+            if item:
+                self.tree.selection_set(item)
+                self.rc_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.rc_menu.grab_release()
+
+    def lazy_load_engines(self):
+        # Heavy engines loaded silently in the background
+        import yt_dlp
+        import urllib.request
+        import ctypes
+        import win32clipboard
+        import queue
+        import re
 
 if __name__ == "__main__":
     app = DvisorPro()
