@@ -177,20 +177,31 @@ class DvisorPro(ctk.CTk):
         except Exception as e:
             self.task_queue.put({"type": "update", "item": item_id, "values": (filename, "-", "Aria2 Missing", "-", "-", "Today")})
 
-    def download_ytdlp(self, url, item_id, filename):
+    def download_ytdlp(self, url, item_id, default_filename):
         import yt_dlp
-        output_tmpl = os.path.join(DOWNLOAD_FOLDER, f"Media_{int(time.time())}.%(ext)s")
+        media_id = f"Media_{int(time.time())}"
+        output_tmpl = os.path.join(DOWNLOAD_FOLDER, f"{media_id}.%(ext)s")
         ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
         
         def hook(d):
             if d['status'] == 'downloading':
-                pct = d.get('_percent_str', '0%').replace('%','').strip()
+                # FIX 1: Prevent UI Flickering by rounding percentage
+                pct_raw = d.get('_percent_str', '0%').replace('%','').strip()
+                try: pct = f"{float(pct_raw):.1f}"
+                except: pct = "0.0"
                 speed = ansi_escape.sub('', d.get('_speed_str', '~'))
                 eta = ansi_escape.sub('', d.get('_eta_str', '~'))
                 size = ansi_escape.sub('', d.get('_total_bytes_estimate_str', '~'))
-                self.task_queue.put({"type": "update", "item": item_id, "values": (filename, size, f"Downloading ({pct}%)", eta, speed, "Today")})
+                
+                # FIX 2: Live Filename Update (Removes "watch")
+                actual_file = os.path.basename(d.get('filename', default_filename))
+                if actual_file.endswith('.part'): actual_file = actual_file.replace('.part', '')
+                
+                self.task_queue.put({"type": "update", "item": item_id, "values": (actual_file, size, f"Downloading ({pct}%)", eta, speed, "Today")})
             elif d['status'] == 'finished':
-                self.task_queue.put({"type": "update", "item": item_id, "values": (filename, "-", "Merging...", "-", "-", "Today")})
+                actual_file = os.path.basename(d.get('filename', default_filename))
+                if actual_file.endswith('.part'): actual_file = actual_file.replace('.part', '')
+                self.task_queue.put({"type": "update", "item": item_id, "values": (actual_file, "-", "Merging...", "-", "-", "Today")})
 
         opts = {
             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best',
@@ -200,10 +211,20 @@ class DvisorPro(ctk.CTk):
             'quiet': True, 'noprogress': True,
         }
         try:
-            with yt_dlp.YoutubeDL(opts) as ydl: ydl.download([url])
-            self.task_queue.put({"type": "update", "item": item_id, "values": (filename, "-", "Completed", "-", "-", "Today")})
-        except:
-            self.task_queue.put({"type": "update", "item": item_id, "values": (filename, "-", "Failed", "-", "-", "Today")})
+            with yt_dlp.YoutubeDL(opts) as ydl: 
+                info = ydl.extract_info(url, download=True)
+                final_filename = os.path.basename(ydl.prepare_filename(info))
+            
+            # FIX 3: AGGRESSIVE GARBAGE COLLECTOR
+            # Scans the folder and deletes leftover fragments matching the media ID
+            for f in os.listdir(DOWNLOAD_FOLDER):
+                if f.startswith(media_id) and (f.endswith('.part') or f.endswith('.ytdl')):
+                    try: os.remove(os.path.join(DOWNLOAD_FOLDER, f))
+                    except: pass
+
+            self.task_queue.put({"type": "update", "item": item_id, "values": (final_filename, "-", "Completed", "-", "-", "Today")})
+        except Exception as e:
+            self.task_queue.put({"type": "update", "item": item_id, "values": (default_filename, "-", "Failed", "-", "-", "Today")})
 
 if __name__ == "__main__":
     app = DvisorPro()
