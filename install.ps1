@@ -1,23 +1,20 @@
 # ===================================================
-# DVISOR FILELESS AUTO-SETUP (FIXED PATHS)
+# DVISOR V4 - QUEUE SYSTEM & CHROME BYPASS
 # ===================================================
 Write-Host "===================================================" -ForegroundColor Green
 Write-Host "DVISOR ONE-CLICK SETUP INITIALIZING..." -ForegroundColor Green
 Write-Host "===================================================" -ForegroundColor Green
 
-# 1. PROCESS KILLER
 Write-Host "[1/6] Cleaning up old processes..."
 Stop-Process -Name "pythonw" -Force -ErrorAction SilentlyContinue
 Stop-Process -Name "python" -Force -ErrorAction SilentlyContinue
 
-# 2. FOLDER CREATION (Using Native Environment Variables)
 Write-Host "[2/6] Preparing System Directories..."
 $TargetDir = Join-Path -Path $env:USERPROFILE -ChildPath "Downloads\Video\Dvisor"
 if (-not (Test-Path -Path $TargetDir)) {
     New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
 }
 
-# 3. PYTHON SKIP LOGIC
 Write-Host "[3/6] Verifying Python Environment..."
 try {
     $pyCheck = py --version 2>&1
@@ -29,7 +26,6 @@ try {
     winget install --id Python.Python.3.11 -e --silent --accept-package-agreements --accept-source-agreements | Out-Null
 }
 
-# 4. FFMPEG SKIP LOGIC
 Write-Host "[4/6] Verifying FFmpeg..."
 try {
     $ffCheck = ffmpeg -version 2>&1
@@ -41,22 +37,20 @@ try {
     winget install --id Gyan.FFmpeg -e --silent --accept-package-agreements --accept-source-agreements | Out-Null
 }
 
-# PATH VARIABLE REFRESH
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 
-# 5. PIP LIBRARIES
-Write-Host "[5/6] Verifying Python Libraries (yt-dlp, pywin32)..."
+Write-Host "[5/6] Verifying Python Libraries..."
 py -m pip install yt-dlp pywin32 --upgrade --quiet | Out-Null
 
-# 6. EXTRACT PYTHON CORE & SHORTCUT
-Write-Host "[6/6] Building Dvisor Core & Auto-Start Shortcut..."
+Write-Host "[6/6] Building V4 Core Engine..."
 $PyCode = @"
 import ctypes, logging, os, re, struct, subprocess, sys, time, winsound, glob
-from datetime import datetime
 import win32clipboard
+import threading
+import queue
 
 DOWNLOAD_FOLDER = os.path.join(os.path.expanduser("~"), "Downloads", "Video", "Dvisor")
-LOG_FILE = os.path.join(DOWNLOAD_FOLDER, "V3_Downloader.log")
+LOG_FILE = os.path.join(DOWNLOAD_FOLDER, "V4_Downloader.log")
 MAX_HEIGHT = 720
 
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
@@ -64,23 +58,18 @@ logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format="%(asctime)s |
 
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 user32 = ctypes.WinDLL("user32", use_last_error=True)
-GMEM_MOVEABLE = 0x0002
-GMEM_ZEROINIT = 0x0040
-CF_HDROP = 15
+GMEM_MOVEABLE, GMEM_ZEROINIT, CF_HDROP = 0x0002, 0x0040, 15
 
 kernel32.GlobalAlloc.argtypes = [ctypes.c_uint, ctypes.c_size_t]
 kernel32.GlobalAlloc.restype = ctypes.c_void_p
-kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
-kernel32.GlobalLock.restype = ctypes.c_void_p
-kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
-kernel32.GlobalUnlock.restype = ctypes.c_bool
-kernel32.GlobalFree.argtypes = [ctypes.c_void_p]
-kernel32.GlobalFree.restype = ctypes.c_void_p
-user32.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
-user32.SetClipboardData.restype = ctypes.c_void_p
+kernel32.GlobalLock.argtypes, kernel32.GlobalLock.restype = [ctypes.c_void_p], ctypes.c_void_p
+kernel32.GlobalUnlock.argtypes, kernel32.GlobalUnlock.restype = [ctypes.c_void_p], ctypes.c_bool
+kernel32.GlobalFree.argtypes, kernel32.GlobalFree.restype = [ctypes.c_void_p], ctypes.c_void_p
+user32.SetClipboardData.argtypes, user32.SetClipboardData.restype = [ctypes.c_uint, ctypes.c_void_p], ctypes.c_void_p
 user32.GetClipboardSequenceNumber.restype = ctypes.c_uint
 
 URL_RE = re.compile(r"^https?://[^\s<>\"']+$", re.IGNORECASE)
+download_queue = queue.Queue()
 
 def get_clipboard_text():
     try:
@@ -115,14 +104,6 @@ def notify_success():
         winsound.Beep(1500, 220)
     except: pass
 
-def update_folder_status(status_msg):
-    for f in glob.glob(os.path.join(DOWNLOAD_FOLDER, "!STATUS_*.txt")):
-        try: os.remove(f)
-        except: pass
-    if status_msg:
-        try: open(os.path.join(DOWNLOAD_FOLDER, f"!STATUS_{status_msg}.txt"), 'w').close()
-        except: pass
-
 def get_next_filename():
     files = glob.glob(os.path.join(DOWNLOAD_FOLDER, "Dvisor*.mp4"))
     max_num = 0
@@ -134,57 +115,61 @@ def get_next_filename():
             if num > max_num: max_num = num
     return f"Dvisor{max_num + 1}.mp4"
 
-def download_and_track(url):
+def process_download(url):
     output_filename = get_next_filename()
     output_path = os.path.join(DOWNLOAD_FOLDER, output_filename)
     logging.info(f"Starting Download: {url} -> {output_filename}")
-    update_folder_status("1_STARTING_CONNECTION")
     
-    format_selector = f"bestvideo[ext=mp4][height<={MAX_HEIGHT}]+bestaudio[ext=m4a]/best[ext=mp4][height<={MAX_HEIGHT}]/best"
-    cmd = [sys.executable, "-m", "yt_dlp", "--no-playlist", "--newline", "--format", format_selector, "--merge-output-format", "mp4", "--output", output_path, url]
+    cmd = [
+        sys.executable, "-m", "yt_dlp",
+        "--cookies-from-browser", "chrome",
+        "--no-playlist",
+        "-S", f"vcodec:h264,ext:mp4:m4a,res:{MAX_HEIGHT}",
+        "--recode-video", "mp4",
+        "--postprocessor-args", "ffmpeg:-pix_fmt yuv420p",
+        "--output", output_path,
+        url
+    ]
     
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
-    last_pct = -1
-    for line in process.stdout:
-        if "[download]" in line and "%" in line:
-            match = re.search(r'(\d+\.\d+)%', line)
-            if match:
-                pct = int(float(match.group(1)))
-                if pct % 5 == 0 and pct != last_pct:
-                    update_folder_status(f"2_DOWNLOADING_{pct}_PERCENT")
-                    last_pct = pct
-        elif "[Merger]" in line or "[ExtractAudio]" in line or "[VideoConvertor]" in line:
-            update_folder_status("3_FINALIZING_FILE_PLEASE_WAIT")
-            
     process.wait()
-    update_folder_status(None) 
     
     if process.returncode == 0 and os.path.isfile(output_path) and os.path.getsize(output_path) > 0:
         logging.info(f"Success: {output_path}")
         return output_path
     else:
-        logging.error("Download or conversion failed.")
+        logging.error(f"Download failed for: {url}")
         return None
 
+def download_worker():
+    while True:
+        url = download_queue.get()
+        if url:
+            final_file = process_download(url)
+            if final_file:
+                copy_file_to_clipboard(final_file)
+                notify_success()
+        download_queue.task_done()
+
 def main():
-    logging.info("V3 Background Monitor Started.")
+    logging.info("V4 Multi-Thread Monitor Started.")
+    worker = threading.Thread(target=download_worker, daemon=True)
+    worker.start()
+    
     last_seq = user32.GetClipboardSequenceNumber()
     while True:
         try:
-            time.sleep(0.5)
+            time.sleep(0.3)
             current_seq = user32.GetClipboardSequenceNumber()
             if current_seq != last_seq:
                 last_seq = current_seq
                 clip_text = get_clipboard_text()
                 if clip_text and URL_RE.fullmatch(clip_text.strip()):
-                    final_file = download_and_track(clip_text.strip())
-                    if final_file:
-                        copy_file_to_clipboard(final_file)
-                        notify_success()
-                        last_seq = user32.GetClipboardSequenceNumber()
+                    logging.info(f"Link added to queue: {clip_text.strip()}")
+                    download_queue.put(clip_text.strip())
         except Exception as e:
-            logging.error(f"Loop Error: {e}")
-            time.sleep(2)
+            logging.error(f"Clipboard Error: {e}")
+            time.sleep(1)
 
 if __name__ == "__main__":
     main()
@@ -193,7 +178,6 @@ if __name__ == "__main__":
 $PyPath = Join-Path -Path $TargetDir -ChildPath "Dvisor_Core.py"
 Set-Content -Path $PyPath -Value $PyCode -Encoding UTF8 -Force
 
-# Startup shortcut using native APPDATA variable
 $ShortcutPath = Join-Path -Path $env:APPDATA -ChildPath "Microsoft\Windows\Start Menu\Programs\Startup\Dvisor_Auto_Downloader.lnk"
 $WshShell = New-Object -ComObject WScript.Shell
 $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
@@ -206,7 +190,6 @@ Write-Host "Starting Background Service..." -ForegroundColor Cyan
 Start-Process -FilePath "pyw.exe" -ArgumentList "`"$PyPath`"" -WindowStyle Hidden -ErrorAction SilentlyContinue
 
 Write-Host "===================================================" -ForegroundColor Green
-Write-Host "SETUP COMPLETE! Dvisor is active in the background." -ForegroundColor Green
-Write-Host "You can safely close this window." -ForegroundColor Green
+Write-Host "SETUP COMPLETE! V4 Engine is active." -ForegroundColor Green
 Write-Host "===================================================" -ForegroundColor Green
 Start-Sleep -Seconds 5
