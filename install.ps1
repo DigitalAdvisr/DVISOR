@@ -9,9 +9,9 @@ try { aria2c -v 2>&1 | Out-Null } catch { winget install --id aria2.aria2 -e --s
 py -m pip install yt-dlp pywin32 customtkinter --upgrade --quiet | Out-Null
 
 $PyPath = Join-Path -Path $TargetDir -ChildPath "Dvisor_GUI.py"
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/DigitalAdvisr/DVISOR/main/Dvisor_GUI.py?v=999" -OutFile $PyPath -UseBasicParsing
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/DigitalAdvisr/DVISOR/main/Dvisor_GUI.py" -OutFile $PyPath -UseBasicParsing
 
-$DesktopPath = [Environment]::GetFolderPath("Desktop")
+$DesktopPath = Join-Path -Path $env:USERPROFILE -ChildPath "Desktop"
 $ShortcutPath = Join-Path -Path $DesktopPath -ChildPath "Dvisor Pro.lnk"
 $WshShell = New-Object -ComObject WScript.Shell
 $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
