@@ -1,5 +1,5 @@
 # ===================================================
-# DVISOR V4 - QUEUE SYSTEM & CHROME BYPASS
+# DVISOR V4.1 - IDM ACCELERATOR MODULE ADDED
 # ===================================================
 Write-Host "===================================================" -ForegroundColor Green
 Write-Host "DVISOR ONE-CLICK SETUP INITIALIZING..." -ForegroundColor Green
@@ -42,7 +42,7 @@ $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";"
 Write-Host "[5/6] Verifying Python Libraries..."
 py -m pip install yt-dlp pywin32 --upgrade --quiet | Out-Null
 
-Write-Host "[6/6] Building V4 Core Engine..."
+Write-Host "[6/6] Building V4.1 Core Engine (IDM Accelerator)..."
 $PyCode = @"
 import ctypes, logging, os, re, struct, subprocess, sys, time, winsound, glob
 import win32clipboard
@@ -124,6 +124,7 @@ def process_download(url):
         sys.executable, "-m", "yt_dlp",
         "--cookies-from-browser", "chrome",
         "--no-playlist",
+        "--concurrent-fragments", "10",
         "-S", f"vcodec:h264,ext:mp4:m4a,res:{MAX_HEIGHT}",
         "--recode-video", "mp4",
         "--postprocessor-args", "ffmpeg:-pix_fmt yuv420p",
@@ -152,7 +153,7 @@ def download_worker():
         download_queue.task_done()
 
 def main():
-    logging.info("V4 Multi-Thread Monitor Started.")
+    logging.info("V4.1 Multi-Thread Monitor Started.")
     worker = threading.Thread(target=download_worker, daemon=True)
     worker.start()
     
@@ -190,6 +191,6 @@ Write-Host "Starting Background Service..." -ForegroundColor Cyan
 Start-Process -FilePath "pyw.exe" -ArgumentList "`"$PyPath`"" -WindowStyle Hidden -ErrorAction SilentlyContinue
 
 Write-Host "===================================================" -ForegroundColor Green
-Write-Host "SETUP COMPLETE! V4 Engine is active." -ForegroundColor Green
+Write-Host "SETUP COMPLETE! V4.1 Accelerator Engine is active." -ForegroundColor Green
 Write-Host "===================================================" -ForegroundColor Green
 Start-Sleep -Seconds 5
