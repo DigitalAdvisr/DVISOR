@@ -71,11 +71,13 @@ class DvisorApp(ctk.CTk):
                     self.add_ui_task(url, duplicate=True)
                 else:
                     self.history_cache.add(url)
-                    ui_frame, progress_var, status_label = self.add_ui_task(url)
-                    threading.Thread(target=self.execute_download, args=(url, ui_frame, progress_var, status_label), daemon=True).start()
+                    ui_frame, progress_var, status_label, pb_widget = self.add_ui_task(url)
+                    threading.Thread(target=self.execute_download, args=(url, ui_frame, progress_var, status_label, pb_widget), daemon=True).start()
             elif task["type"] == "update_progress":
                 task["var"].set(task["value"])
                 task["label"].configure(text=task["text"])
+                if "color" in task and task["pb"]:
+                    task["pb"].configure(progress_color=task["color"])
         self.after(100, self.process_queue)
 
     def add_ui_task(self, url, duplicate=False):
@@ -98,9 +100,9 @@ class DvisorApp(ctk.CTk):
         
         status = ctk.CTkLabel(frame, text="Initializing...", text_color="#aaaaaa")
         status.pack(anchor="w", padx=10, pady=(0, 10))
-        return frame, progress_var, status
+        return frame, progress_var, status, pb
 
-    def execute_download(self, url, ui_frame, progress_var, status_label):
+    def execute_download(self, url, ui_frame, progress_var, status_label, pb_widget):
         output_tmpl = os.path.join(DOWNLOAD_FOLDER, f"Dvisor_{int(time.time())}.%(ext)s")
         ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
         
@@ -113,9 +115,11 @@ class DvisorApp(ctk.CTk):
                 except: p_val = 0
                 
                 detail_text = f"Downloading: {p_str}% | Speed: {speed} | ETA: {eta} | [10 Threads]"
-                self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "value": p_val, "text": detail_text})
+                self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "pb": pb_widget, "value": p_val, "text": detail_text, "color": "#00ffcc"})
+            
             elif d['status'] == 'finished':
-                self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "value": 0.99, "text": "Merging Audio & Video (Processing)..."})
+                # Color changes to Golden/Orange indicating Merging phase
+                self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "pb": pb_widget, "value": 1.0, "text": "Merging Audio & Video... Please Wait", "color": "#ff9900"})
 
         base_opts = {
             'format': 'bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/best[ext=mp4][height<=720]/best',
@@ -135,20 +139,20 @@ class DvisorApp(ctk.CTk):
         try:
             with yt_dlp.YoutubeDL(opts_with_cookies) as ydl:
                 ydl.download([url])
-                self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "value": 1.0, "text": "Completed! Saved to Dvisor folder."})
+                self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "pb": pb_widget, "value": 1.0, "text": "Completed! Saved to Dvisor folder.", "color": "#00cc66"})
                 success = True
         except Exception as e:
             pass 
 
         if not success:
             try:
-                self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "value": 0, "text": "Chrome locked. Retrying directly..."})
+                self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "pb": pb_widget, "value": 0, "text": "Chrome locked. Retrying directly...", "color": "#ff4444"})
                 with yt_dlp.YoutubeDL(base_opts) as ydl:
                     ydl.download([url])
-                    self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "value": 1.0, "text": "Completed! Saved to Dvisor folder."})
+                    self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "pb": pb_widget, "value": 1.0, "text": "Completed! Saved to Dvisor folder.", "color": "#00cc66"})
             except Exception as e2:
                 err_msg = str(e2).split('\n')[0][:55]
-                self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "value": 0, "text": f"Error: {err_msg}"})
+                self.task_queue.put({"type": "update_progress", "var": progress_var, "label": status_label, "pb": pb_widget, "value": 0, "text": f"Error: {err_msg}", "color": "#ff4444"})
 
     def download_manager(self):
         while True: time.sleep(1)
