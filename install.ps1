@@ -11,9 +11,10 @@ py -m pip install yt-dlp pywin32 customtkinter --upgrade --quiet | Out-Null
 $PyPath = Join-Path -Path $TargetDir -ChildPath "Dvisor_GUI.py"
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/DigitalAdvisr/DVISOR/main/Dvisor_GUI.py" -OutFile $PyPath -UseBasicParsing
 
-$DesktopPath = Join-Path -Path $env:USERPROFILE -ChildPath "Desktop"
-$ShortcutPath = Join-Path -Path $DesktopPath -ChildPath "Dvisor Pro.lnk"
 $WshShell = New-Object -ComObject WScript.Shell
+$DesktopPath = $WshShell.SpecialFolders.Item("Desktop")
+$ShortcutPath = Join-Path -Path $DesktopPath -ChildPath "Dvisor Pro.lnk"
+
 $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
 $Shortcut.TargetPath = "pythonw.exe"
 $Shortcut.Arguments = "`"$PyPath`""
