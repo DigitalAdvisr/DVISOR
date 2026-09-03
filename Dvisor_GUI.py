@@ -19,7 +19,7 @@ DIRECT_EXTS = ('.zip', '.rar', '.exe', '.pdf', '.iso', '.mp3', '.png', '.jpg', '
 class DvisorPro(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Dvisor Pro v1.0 - Internet Download Manager")
+        self.title("Internet Download Manager (Dvisor Pro v1.0)")
         self.geometry("1050x650")
         self.minsize(800, 500)
         self.configure(fg_color="#1e1e1e")
@@ -27,10 +27,11 @@ class DvisorPro(ctk.CTk):
         self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(1, weight=1)
 
+        self.build_menubar()
         self.build_toolbar()
         self.build_sidebar()
         self.build_grid()
-        self.update() # Force Instant Render
+        self.update() 
 
         self.task_queue = queue.Queue()
         self.history_cache = set()
@@ -38,10 +39,25 @@ class DvisorPro(ctk.CTk):
         threading.Thread(target=self.lazy_load_engines, daemon=True).start()
         self.after(100, self.process_queue)
 
+    def build_menubar(self):
+        self.menubar = Menu(self, bg="#2d2d2d", fg="white")
+        menu_tasks = Menu(self.menubar, tearoff=0, bg="#2d2d2d", fg="white")
+        menu_tasks.add_command(label="Add new download")
+        self.menubar.add_cascade(label="Tasks", menu=menu_tasks)
+        menu_file = Menu(self.menubar, tearoff=0, bg="#2d2d2d", fg="white")
+        menu_file.add_command(label="Exit")
+        self.menubar.add_cascade(label="File", menu=menu_file)
+        menu_dl = Menu(self.menubar, tearoff=0, bg="#2d2d2d", fg="white")
+        menu_dl.add_command(label="Pause All")
+        self.menubar.add_cascade(label="Downloads", menu=menu_dl)
+        self.menubar.add_cascade(label="View", menu=Menu(self.menubar, tearoff=0))
+        self.menubar.add_cascade(label="Help", menu=Menu(self.menubar, tearoff=0))
+        self.config(menu=self.menubar)
+
     def build_toolbar(self):
         self.toolbar = ctk.CTkFrame(self, height=70, corner_radius=0, fg_color="#2b2b2b")
         self.toolbar.grid(row=0, column=0, columnspan=2, sticky="ew")
-        buttons = ["➕ Add URL", "▶ Resume", "⏸ Stop", "❌ Delete", "⚙ Options"]
+        buttons = ["Add URL", "Resume", "Stop", "Stop All", "Delete", "Options", "Scheduler"]
         for btn_text in buttons:
             btn = ctk.CTkButton(self.toolbar, text=btn_text, width=80, height=45, fg_color="transparent", hover_color="#444444", text_color="white", font=ctk.CTkFont(weight="bold"))
             btn.pack(side="left", padx=5, pady=10)
@@ -60,12 +76,12 @@ class DvisorPro(ctk.CTk):
         self.cat_tree.heading("#0", text="Categories", anchor="w")
         self.cat_tree.column("#0", width=210)
 
-        node_all = self.cat_tree.insert("", "end", text="🌐 All Downloads", open=True)
+        node_all = self.cat_tree.insert("", "end", text="All Downloads", open=True)
         for cat in ["Compressed", "Documents", "Music", "Programs", "Video"]:
             self.cat_tree.insert(node_all, "end", text=f"  {cat}")
         
-        self.cat_tree.insert("", "end", text="⏳ Unfinished", open=True)
-        self.cat_tree.insert("", "end", text="✅ Finished", open=True)
+        self.cat_tree.insert("", "end", text="Unfinished", open=True)
+        self.cat_tree.insert("", "end", text="Finished", open=True)
         self.cat_tree.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
 
     def build_grid(self):
@@ -86,12 +102,12 @@ class DvisorPro(ctk.CTk):
             self.tree.heading(col, text=col, anchor="w")
             if col == "File Name": self.tree.column(col, width=300, anchor="w")
             else: self.tree.column(col, width=100, anchor="w")
-            
+                
         self.tree.grid(row=0, column=0, sticky="nsew")
         
         self.rc_menu = Menu(self, tearoff=0, bg="#2b2b2b", fg="white", activebackground="#00ffcc", activeforeground="black")
-        self.rc_menu.add_command(label="📁 Open Folder")
-        self.rc_menu.add_command(label="❌ Remove")
+        self.rc_menu.add_command(label="Open Folder")
+        self.rc_menu.add_command(label="Remove")
         self.tree.bind("<Button-3>", self.show_rc_menu)
 
     def show_rc_menu(self, event):
@@ -149,7 +165,6 @@ class DvisorPro(ctk.CTk):
         try:
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
             for line in process.stdout:
-                # Parsing Aria2 Output: [#123456 12MiB/50MiB(24%) CN:16 DL:3MiB ETA:12s]
                 match = re.search(r'\((\d+)%\).*?DL:([^ ]+).*?ETA:([^ ]+)', line)
                 if match:
                     pct, speed, eta = match.group(1), match.group(2), match.group(3)
