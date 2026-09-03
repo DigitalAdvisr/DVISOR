@@ -156,7 +156,7 @@ class DvisorPro(ctk.CTk):
                 if url not in self.history_cache:
                     self.history_cache.add(url)
                     filename = url.split('/')[-1].split('?')[0] or f"Download_{int(time.time())}"
-                    item_id = self.tree.insert("", "end", values=(filename, "Fetching Info...", "Connecting...", "-", "-", "Today"))
+                    item_id = self.tree.insert("", "end", values=(filename, "Fetching...", "Connecting...", "-", "-", "Today"))
                     threading.Thread(target=self.route_download, args=(url, item_id, filename), daemon=True).start()
             elif task["type"] == "update":
                 self.tree.item(task["item"], values=task["values"])
@@ -189,24 +189,22 @@ class DvisorPro(ctk.CTk):
     def download_ytdlp(self, url, item_id, default_filename):
         import yt_dlp
         
-        # 1. PRE-FETCH METADATA (Title & Size)
+        # Unique ID ensures Garbage Collector only targets THIS download
+        unique_id = f"DVS_{int(time.time())}"
+        output_tmpl = os.path.join(DOWNLOAD_FOLDER, f"{unique_id}.%(ext)s")
+        
         human_size = "Unknown"
-        final_filename = default_filename
-        safe_title = f"Media_{int(time.time())}"
+        safe_title = default_filename
         
         try:
             with yt_dlp.YoutubeDL({'quiet': True}) as ydl_temp:
                 info = ydl_temp.extract_info(url, download=False)
-                real_title = info.get('title', 'Media_Download')
+                real_title = info.get('title', 'Video')
                 safe_title = re.sub(r'[\\/*?:"<>|]', "", real_title)[:50]
-                ext = info.get('ext', 'mp4')
-                final_filename = f"{safe_title}.{ext}"
-                size_bytes = info.get('filesize') or info.get('filesize_approx') or 0
-                human_size = self.format_size(size_bytes)
-                self.task_queue.put({"type": "update", "item": item_id, "values": (final_filename, human_size, "Starting...", "-", "-", "Today")})
         except: pass
 
-        output_tmpl = os.path.join(DOWNLOAD_FOLDER, f"{safe_title}.%(ext)s")
+        self.task_queue.put({"type": "update", "item": item_id, "values": (safe_title + ".mp4", "Calculating...", "Starting 480p...", "-", "-", "Today")})
+
         ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
         
         def hook(d):
@@ -216,40 +214,64 @@ class DvisorPro(ctk.CTk):
                 except: pct = "0.0"
                 speed = ansi_escape.sub('', d.get('_speed_str', '~'))
                 eta = ansi_escape.sub('', d.get('_eta_str', '~'))
-                self.task_queue.put({"type": "update", "item": item_id, "values": (final_filename, human_size, f"Downloading ({pct}%)", eta, speed, "Today")})
+                self.task_queue.put({"type": "update", "item": item_id, "values": (safe_title + ".mp4", "Unknown", f"Downloading ({pct}%)", eta, speed, "Today")})
             elif d['status'] == 'finished':
-                self.task_queue.put({"type": "update", "item": item_id, "values": (final_filename, human_size, "Merging Fragments...", "-", "-", "Today")})
+                self.task_queue.put({"type": "update", "item": item_id, "values": (safe_title + ".mp4", "Unknown", "Merging & Cleaning...", "-", "-", "Today")})
 
-        # 2. CAP RESOLUTION TO 720p (Normal Size) & PREVENT LEFTOVERS
+        # STRICT 480P CAP: Minimizes size and maximizes speed
         opts = {
-            'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'format': 'bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480][ext=mp4]/best',
             'outtmpl': output_tmpl,
             'concurrent_fragment_downloads': 10,
             'progress_hooks': [hook],
             'quiet': True, 'noprogress': True,
-            'keepvideo': False, 
         }
         
         try:
             with yt_dlp.YoutubeDL(opts) as ydl: 
                 ydl.download([url])
             
-            # 3. AGGRESSIVE GARBAGE COLLECTION (With Wait Time)
-            time.sleep(2) # Give FFmpeg time to unlock files
+            # --- 100% BULLETPROOF GARBAGE COLLECTOR ---
+            time.sleep(1.5) # Wait for Windows OS to unlock file handles
+            final_media_file = None
+            
+            # Step 1: Find the actual completed media file
             for f in os.listdir(DOWNLOAD_FOLDER):
-                if f.startswith(safe_title) and (f.endswith('.part') or f.endswith('.ytdl') or f.endswith('.frag') or f.endswith('.temp')):
+                if f.startswith(unique_id) and not (f.endswith('.part') or f.endswith('.ytdl') or f.endswith('.frag')):
+                    final_media_file = f
+                    break
+            
+            # Step 2: Force delete all fragments related to this download
+            for f in os.listdir(DOWNLOAD_FOLDER):
+                if f.startswith(unique_id) and f != final_media_file:
                     try: os.remove(os.path.join(DOWNLOAD_FOLDER, f))
                     except: pass
             
-            # 4. FINAL SIZE UPDATE
-            final_path = os.path.join(DOWNLOAD_FOLDER, final_filename)
-            if os.path.exists(final_path):
-                actual_size = os.path.getsize(final_path)
-                human_size = self.format_size(actual_size)
+            # Step 3: Rename to Original Title & Calculate Final Size
+            final_user_name = f"{safe_title}.mp4"
+            if final_media_file:
+                ext = final_media_file.split('.')[-1]
+                final_user_name = f"{safe_title}.{ext}"
+                old_path = os.path.join(DOWNLOAD_FOLDER, final_media_file)
+                new_path = os.path.join(DOWNLOAD_FOLDER, final_user_name)
+                
+                counter = 1
+                while os.path.exists(new_path):
+                    final_user_name = f"{safe_title} ({counter}).{ext}"
+                    new_path = os.path.join(DOWNLOAD_FOLDER, final_user_name)
+                    counter += 1
+                
+                try: os.rename(old_path, new_path)
+                except: new_path = old_path # Fallback if rename fails
+                
+                # Accurately calculate size of final file
+                if os.path.exists(new_path):
+                    human_size = self.format_size(os.path.getsize(new_path))
 
-            self.task_queue.put({"type": "update", "item": item_id, "values": (final_filename, human_size, "Completed", "-", "-", "Today")})
+            self.task_queue.put({"type": "update", "item": item_id, "values": (final_user_name, human_size, "Completed", "-", "-", "Today")})
+            
         except Exception as e:
-            self.task_queue.put({"type": "update", "item": item_id, "values": (final_filename, human_size, "Failed", "-", "-", "Today")})
+            self.task_queue.put({"type": "update", "item": item_id, "values": (safe_title + ".mp4", "Error", "Failed", "-", "-", "Today")})
 
 if __name__ == "__main__":
     app = DvisorPro()
